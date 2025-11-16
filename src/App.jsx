@@ -16,6 +16,17 @@ export default function App() {
   const [todos, setTodos] = useState([]);
   const [newTodo, setNewTodo] = useState("");
 
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user) {
+        setUser(data.user);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (user) fetchTodos();
+  }, [user]);
   const register = async () => {
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -26,13 +37,8 @@ export default function App() {
       console.error("Registration failed:", error);
       return;
     }
-	setRegistered(true);
-    setSession(data.session);
-    setUser(data.user);
+    setRegistered(true);
   };
-if (registered) {
-  return <div>Please check your email to confirm your account before logging in.</div>;
-}
   const login = async () => {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
@@ -54,36 +60,20 @@ if (registered) {
     setUser(null);
     setTodos([]);
   };
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data?.user) {
-        setUser(data.user);
-      }
-    });
-  }, []);
 
   // Fetch todos
   const fetchTodos = async () => {
-    const { data, error } = await supabase
-      .from("todos")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
+    let { data, error } = await supabase.rpc("select_todo");
     if (error) console.error(error);
     else setTodos(data);
   };
 
-  useEffect(() => {
-    if (user) fetchTodos();
-  }, [user]);
-
   // Add todo
   const addTodo = async () => {
     if (!newTodo.trim()) return;
-    const { data, error } = await supabase
-      .from("todos")
-      .insert([{ title: newTodo, user_id: user.id }])
-      .select();
+    let { data, error } = await supabase.rpc("insert_todo", {
+      p_title: newTodo,
+    });
     if (error) console.error(error);
     else setTodos([data[0], ...todos]);
     setNewTodo("");
@@ -91,22 +81,31 @@ if (registered) {
 
   // Toggle completion
   const toggleComplete = async (id, completed) => {
-    const { data, error } = await supabase
-      .from("todos")
-      .update({ Completed: !completed })
-      .eq("id", id)
-      .select();
+    let { data, error } = await supabase.rpc("toggle_todo", {
+      p_id: id,
+    });
     if (error) console.error(error);
     else setTodos(todos.map((todo) => (todo.id === id ? data[0] : todo)));
   };
 
   // Delete todo
   const deleteTodo = async (id) => {
-    const { error } = await supabase.from("todos").delete().eq("id", id);
+    let { data, error } = await supabase.rpc("delete_todo", {
+      p_id: id,
+    });
     if (error) console.error(error);
     else setTodos(todos.filter((todo) => todo.id !== id));
   };
 
+  if (registered) {
+    return (
+      <div style={{ padding: 20, maxWidth: 400, margin: "0 auto" }}>
+        <h2>Check your email</h2>
+        <p>Please confirm your account before logging in.</p>
+        <button onClick={() => setRegistered(false)}>Back to Login</button>
+      </div>
+    );
+  }
   if (!user) {
     return (
       <div style={{ padding: 20, maxWidth: 400, margin: "0 auto" }}>
@@ -192,15 +191,15 @@ if (registered) {
           <li key={todo.id} style={{ display: "flex", marginBottom: 10 }}>
             <input
               type="checkbox"
-              checked={todo.Completed}
-              onChange={() => toggleComplete(todo.id, todo.Completed)}
+              checked={todo.completed}
+              onChange={() => toggleComplete(todo.id, todo.completed)}
               style={{ marginRight: 10 }}
             />
 
             <div style={{ flex: 1 }}>
               <div
                 style={{
-                  textDecoration: todo.Completed ? "line-through" : "none",
+                  textDecoration: todo.completed ? "line-through" : "none",
                 }}
               >
                 {todo.title}
